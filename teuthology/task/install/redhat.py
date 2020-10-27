@@ -6,6 +6,7 @@ import os
 from teuthology import packaging
 from teuthology.orchestra import run
 from teuthology.parallel import parallel
+from teuthology.config import config as teuth_config
 
 log = logging.getLogger(__name__)
 
@@ -41,27 +42,21 @@ def install(ctx, config):
              - ceph-mds
     """
     yaml_path = None
-    # Look for rh specific packages in <suite_path>/rh/downstream.yaml
-    if 'suite_path' in ctx.config:
-        ds_yaml = os.path.join(
-            ctx.config['suite_path'],
-            'rh',
-            'downstream.yaml',
-        )
-        if os.path.exists(ds_yaml):
-            yaml_path = ds_yaml
-    # default to user home dir if one exists
-    default_yaml = os.path.expanduser('~/downstream.yaml')
-    if os.path.exists(default_yaml):
-        yaml_path = default_yaml
-    log.info("using yaml path %s", yaml_path)
-    downstream_config = yaml.safe_load(open(yaml_path))
+    # Look for rh specific packages
+    ds_yaml = os.path.join(
+        teuth_config.get('ds_yaml_dir'),
+        config.get('rhbuild') + ".yaml",
+    )
+    if not os.path.exists(ds_yaml):
+        raise FileNotFoundError(f'Downstream rh version yaml file missing: {ds_yaml}')
+    log.info("using yaml path %s", ds_yaml)
+    downstream_config = yaml.safe_load(open(ds_yaml))
     rh_versions = downstream_config.get('versions', dict()).get('supported', [])
-    external_config = dict(extra_system_packages=config.get('extra_system_packages', {}),
-                           extra_packages=config.get('extra_packages', {}),
+    external_config = dict(extra_system_packages=config.get('extra_system_packages'),
+                           extra_packages=config.get('extra_packages'),
                            )
     downstream_config.update(external_config)
-    version = config['rhbuild']
+    version = config.get('rhbuild')
     if version in rh_versions:
         log.info("%s is a supported version", version)
     else:
@@ -95,10 +90,21 @@ def install_pkgs(ctx, remote, version, downstream_config):
     :param downstream_config the dict object that has downstream pkg info
     """
     rh_version_check = downstream_config.get('versions').get('rpm').get('mapped')
-    rh_rpm_pkgs = downstream_config.get('pkgs').get('rpm') + \
-                  downstream_config.get('extra_system_packages').get('rpm', []) + \
-                  downstream_config.get('extra_packages').get('rpm', [])
+    rh_rpm_pkgs = downstream_config.get('pkgs').get('rpm')
+
+    extra_system_packages = downstream_config.get('extra_system_packages', [])
+    extra_packages = downstream_config.get('extra_packages', [])
+
+    if isinstance(extra_packages, dict):
+        rh_rpm_pkgs += extra_packages.get('rpm', [])
+    else:
+        rh_rpm_pkgs += extra_packages
+    if isinstance(extra_system_packages, dict):
+        rh_rpm_pkgs += extra_system_packages.get('rpm', [])
+    else:
+        rh_rpm_pkgs += extra_system_packages
     pkgs = str.join(' ', rh_rpm_pkgs)
+
     log.info("Remove any epel packages installed on node %s", remote.shortname)
     # below packages can come from epel and still work, ensure we use cdn pkgs
     remote.run(
@@ -172,10 +178,20 @@ def install_deb_pkgs(
     : param downstream_config the dict object that has downstream pkg info
     """
     rh_version_check = downstream_config.get('versions').get('deb').get('mapped')
-    rh_deb_pkgs = downstream_config.get('pkgs').get('deb') + \
-                  downstream_config.get('extra_system_packages').get('deb', []) + \
-                  downstream_config.get('extra_packages').get('deb', [])
+    rh_deb_pkgs = downstream_config.get('pkgs').get('deb')
+    extra_system_packages = downstream_config.get('extra_system_packages', [])
+    extra_packages = downstream_config.get('extra_packages', [])
+
+    if isinstance(extra_packages, dict):
+        rh_deb_pkgs += extra_packages.get('rpm', [])
+    else:
+        rh_deb_pkgs += extra_packages
+    if isinstance(extra_system_packages, dict):
+        rh_deb_pkgs += extra_system_packages.get('rpm', [])
+    else:
+        rh_deb_pkgs += extra_system_packages
     pkgs = str.join(' ', rh_deb_pkgs)
+
     log.info("Installing redhat ceph packages")
     remote.run(args=['sudo', 'apt-get', '-y', 'install',
                      run.Raw(pkgs)])
