@@ -8,6 +8,7 @@ import logging
 
 from teuthology.config import config
 from teuthology.contextutil import safe_while
+from paramiko.hostkeys import HostKeyEntry
 
 log = logging.getLogger(__name__)
 
@@ -29,14 +30,12 @@ def create_key(keytype, key):
     """
     Create an ssh-rsa, ssh-dss or ssh-ed25519 key.
     """
-    if keytype == 'ssh-rsa':
-        return paramiko.rsakey.RSAKey(data=base64.decodestring(key.encode()))
-    elif keytype == 'ssh-dss':
-        return paramiko.dsskey.DSSKey(data=base64.decodestring(key.encode()))
-    elif keytype == 'ssh-ed25519':
-        return paramiko.ed25519key.Ed25519Key(data=base64.decodestring(key.encode()))
-    else:
-        raise ValueError('keytype must be ssh-rsa, ssh-dss (DSA) or ssh-ed25519')
+    l = "{hostname} {keytype} {key}".format(hostname="x", keytype=keytype, key=key)
+
+    ke = HostKeyEntry.from_line(l)
+    assert ke,
+        'invalid host keytype {keytype}'.format(keytype = keytype))
+    return ke.key
 
 
 def connect(user_at_host, host_key=None, keep_alive=False, timeout=60,
