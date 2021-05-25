@@ -30,6 +30,18 @@ from teuthology.task.internal.redhat import (setup_cdn_repo, setup_base_repo,   
 
 log = logging.getLogger(__name__)
 
+make_emptydir = """
+for X in "$@"
+do
+ if [ -d "$X" ]
+ then
+  find "$X" -mindepth 1 -maxdepth 1 -print0 | xargs -0 rm -rf --
+ else
+  mkdir -p "$X"
+ fi
+done
+"""
+
 
 @contextlib.contextmanager
 def base(ctx, config):
@@ -40,7 +52,7 @@ def base(ctx, config):
     testdir = misc.get_testdir(ctx)
     run.wait(
         ctx.cluster.run(
-            args=['mkdir', '-p', '-m0755', '--', testdir],
+            args=['sh', '-s', '-', testdir], stdin=make_emptydir
             wait=False,
         )
     )
@@ -260,11 +272,11 @@ def serialize_remote_roles(ctx, config):
 
 def check_ceph_data(ctx, config):
     """
-    Check for old /var/lib/ceph subdirectories and detect staleness.
+    Remove any stale files under /usr/lib/ceph/
     """
-    log.info('Checking for non-empty /var/lib/ceph...')
+    log.info('Removing any stale files in /var/lib/ceph...')
     processes = ctx.cluster.run(
-        args='test -z $(ls -A /var/lib/ceph)',
+        args=['sudo', 'sh', '-s', '-', '/var/lib/ceph'], stdin=make_emptydir
         wait=False,
     )
     failed = False
